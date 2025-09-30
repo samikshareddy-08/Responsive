@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Happy Birthday Samiksha — Flying Text</title>
+  <style>
+    :root{
+      --bg1: 20 20 30; /* hsl-ish via rgb for gradients */
+      --bg2: 40 10 60;
+      --hue: 340; /* will be rotated by JS */
+      --accent: hsl(var(--hue) 90% 60%);
+      --text-shadow: 0 6px 30px rgba(0,0,0,0.6);
+      --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+
+    html,body{height:100%;margin:0;font-family:var(--font-family);overflow:hidden;background:radial-gradient(circle at 10% 20%, rgba(255,255,255,0.03), transparent 10%), linear-gradient(120deg, rgb(var(--bg1)), rgb(var(--bg2)));}
+
+    /* center stage */
+    .stage{
+      height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:24px;padding:40px;box-sizing:border-box;
+    }
+
+    /* flying text wrapper */
+    .banner{
+      position:relative;display:inline-block;perspective:1200px;filter:drop-shadow(0 20px 40px rgba(0,0,0,0.5));
+    }
+
+    h1{
+      margin:0;font-size:clamp(36px, 8vw, 110px);letter-spacing:0.02em;font-weight:800;text-transform:uppercase;color:transparent;
+      -webkit-background-clip:text;background-clip:text;background-image:linear-gradient(90deg, var(--accent), hsl(calc(var(--hue) + 60) 80% 60%));
+      text-shadow: var(--text-shadow);
+      display:inline-block;
+    }
+
+    /* each letter style */
+    .char{
+      display:inline-block;transform-origin:center center;will-change:transform,opacity,filter;mix-blend-mode:screen;
+    }
+
+    /* flying animation - floats in 3D and waves */
+    @keyframes fly {
+      0%{transform:translate3d(0,100vh,0) rotateX(30deg) rotateZ(-20deg) scale(0.6);opacity:0}
+      40%{opacity:1}
+      60%{transform:translate3d(0,-6px,0) rotateX(6deg) rotateZ(0) scale(1.02)}
+      100%{transform:translate3d(0,0,0) rotateX(0) rotateZ(0) scale(1);opacity:1}
+    }
+
+    /* gentle floating loop */
+    @keyframes floaty {
+      0%{transform:translate3d(0,0,0)}
+      50%{transform:translate3d(0,-10px,0) rotateZ(2deg)}
+      100%{transform:translate3d(0,0,0)}
+    }
+
+    /* add individual variance with JS classes */
+    .char.fly-in{animation:fly 1.1s cubic-bezier(.2,.9,.2,1) both}
+    .char.float{animation:floaty 4s ease-in-out infinite}
+
+    /* small subtitle */
+    p.sub{
+      margin:0;color:rgba(255,255,255,0.85);font-weight:600;letter-spacing:0.06em;font-size:18px;opacity:0.95
+    }
+
+    /* confetti dots (pure CSS + JS to spawn) */
+    .confetti{position:absolute;inset:0;pointer-events:none}
+    .confetti .piece{position:absolute;width:10px;height:10px;background:var(--accent);border-radius:2px;opacity:0;transform:translate3d(0,0,0) rotate(0deg);will-change:transform,opacity}
+
+    /* cursor */
+    .cursor-dot{
+      position:fixed;left:0;top:0;width:12px;height:12px;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%) scale(1);backdrop-filter: blur(0px);z-index:9999;mix-blend-mode:screen;box-shadow:0 6px 20px rgba(0,0,0,0.45);
+      transition:transform .18s cubic-bezier(.2,.9,.2,1), background .18s;
+      background:linear-gradient(135deg,var(--accent), hsl(calc(var(--hue) + 60) 80% 60%));
+    }
+    .cursor-ring{
+      position:fixed;left:0;top:0;width:44px;height:44px;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);z-index:9998;opacity:0.25;border:1px solid rgba(255,255,255,0.15)
+    }
+
+    /* controls */
+    .controls{position:fixed;right:18px;top:18px;background:rgba(0,0,0,0.35);backdrop-filter:blur(6px);padding:10px;border-radius:12px;color:#fff;font-size:13px;z-index:50}
+    .controls label{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+    .btn{display:inline-block;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.06);cursor:pointer;border:0;color:#fff}
+
+    /* small responsive tweaks */
+    @media (max-width:520px){
+      .controls{left:12px;right:auto;font-size:12px}
+    }
+
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="banner" aria-hidden>
+      <h1 id="greeting">Happy Birthday Samiksha</h1>
+      <div class="confetti" id="confetti"></div>
+    </div>
+    <p class="sub">Wishing you a day full of joy — made with HTML, CSS & JS ✨</p>
+  </div>
+
+  <!-- custom cursor elements -->
+  <div class="cursor-ring" id="cursorRing"></div>
+  <div class="cursor-dot" id="cursorDot"></div>
+
+  <!-- floating control palette -->
+  <div class="controls" id="controls">
+    <label><input type="checkbox" id="toggleFloat" checked> Floating letters</label>
+    <label><input type="checkbox" id="toggleConfetti" checked> Confetti</label>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button class="btn" id="shuffleColors">Shuffle colours</button>
+      <button class="btn" id="regen">Regenerate</button>
+    </div>
+  </div>
+
+  <script>
+    // Utility: split text into spans for each letter
+    const greeting = document.getElementById('greeting');
+    const text = greeting.textContent.trim();
+    greeting.textContent='';
+
+    const letters = [];
+    for(let i=0;i<text.length;i++){
+      const ch = text[i];
+      const span = document.createElement('span');
+      span.className = 'char';
+      span.textContent = ch === ' ' ? '\u00A0' : ch;
+      // stagger delays
+      const delay = (i * 60) + Math.random()*80;
+      span.style.animationDelay = delay + 'ms';
+      // add random float duration offset using inline style (will be toggled via JS)
+      span.dataset.floatOffset = (Math.random()*1.4 + 3).toFixed(2) + 's';
+      greeting.appendChild(span);
+      letters.push(span);
+    }
+
+    // After small timeout, add 'fly-in' then 'float' classes to create staged effect
+    requestAnimationFrame(()=>{
+      letters.forEach((el,idx)=>{
+        // slight randomization for rotation and scale
+        const rot = (Math.random()*28 - 14).toFixed(2);
+        el.style.transform = `rotate(${rot}deg)`;
+        // fly-in
+        setTimeout(()=>{
+          el.classList.add('fly-in');
+          // after fly-in finishes, add floating loop with personalized duration
+          setTimeout(()=>{
+            el.classList.add('float');
+            el.style.animationDuration = el.dataset.floatOffset;
+          }, 1100 + Math.random()*350);
+        }, idx*60);
+      });
+    });
+
+    // Color cycling: update --hue periodically for living colors
+    let hue = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--hue')) || 340;
+    const hueStep = () => Math.floor(10 + Math.random()*80);
+    function cycleHue(){
+      hue = (hue + hueStep()) % 360;
+      document.documentElement.style.setProperty('--hue', hue);
+    }
+    let hueInterval = setInterval(cycleHue, 1500);
+
+    // Confetti spawn
+    const confettiRoot = document.getElementById('confetti');
+    function spawnConfetti(count=24){
+      for(let i=0;i<count;i++){
+        const el = document.createElement('div');
+        el.className='piece';
+        const size = Math.random()*12 + 6;
+        el.style.width = el.style.height = size + 'px';
+        const left = 20 + Math.random()*60; // percent
+        el.style.left = left + '%';
+        el.style.top = (10 + Math.random()*10) + '%';
+        // random color by hue shift
+        const h = (hue + Math.random()*120 - 60) % 360;
+        el.style.background = `linear-gradient(180deg, hsl(${h} 90% 60%), hsl(${(h+40)%360} 80% 50%))`;
+        confettiRoot.appendChild(el);
+
+        // animate with JS since we want arc + rotate
+        const dx = (Math.random()*160 - 80);
+        const dy = (Math.random()*240 + 160);
+        const rot = (Math.random()*720 - 360);
+        el.animate([
+          {transform:`translate3d(0,0,0) rotate(0deg)`, opacity:0},
+          {transform:`translate3d(${dx/2}px, ${dy/2}px, 0) rotate(${rot/2}deg)`, opacity:1, offset:0.3},
+          {transform:`translate3d(${dx}px, ${dy}px, 0) rotate(${rot}deg)`, opacity:0}
+        ],{duration:1600 + Math.random()*900, easing:'cubic-bezier(.2,.8,.2,1)'}).onfinish = ()=>el.remove();
+      }
+    }
+    // initial confetti
+    spawnConfetti(26);
+
+    // Controls
+    document.getElementById('toggleFloat').addEventListener('change', (e)=>{
+      letters.forEach(el=>{
+        if(e.target.checked) el.classList.add('float'); else el.classList.remove('float');
+      });
+    });
+    document.getElementById('toggleConfetti').addEventListener('change', (e)=>{
+      if(e.target.checked) spawnConfetti(26);
+      else confettiRoot.innerHTML='';
+    });
+    document.getElementById('shuffleColors').addEventListener('click', ()=>{cycleHue(); spawnConfetti(18);} );
+    document.getElementById('regen').addEventListener('click', ()=>{ confettiRoot.innerHTML=''; spawnConfetti(40); });
+
+    // Custom cursor with trailing ring and interactive states
+    const cursorDot = document.getElementById('cursorDot');
+    const cursorRing = document.getElementById('cursorRing');
+    let mouseX = window.innerWidth/2, mouseY = window.innerHeight/2;
+    let ringX = mouseX, ringY = mouseY;
+
+    window.addEventListener('mousemove',(e)=>{ mouseX = e.clientX; mouseY = e.clientY; cursorDot.style.left = mouseX + 'px'; cursorDot.style.top = mouseY + 'px'; cursorDot.style.transform = 'translate(-50%,-50%) scale(1)'; cursorRing.style.left = mouseX + 'px'; cursorRing.style.top = mouseY + 'px'; });
+
+    // subtle lag for ring
+    function animateRing(){
+      ringX += (mouseX - ringX) * 0.18; ringY += (mouseY - ringY) * 0.18;
+      cursorRing.style.left = ringX + 'px'; cursorRing.style.top = ringY + 'px';
+      requestAnimationFrame(animateRing);
+    }
+    animateRing();
+
+    // click effects
+    window.addEventListener('mousedown', ()=>{
+      cursorDot.style.transform = 'translate(-50%,-50%) scale(1.7)';
+      spawnConfetti(8);
+    });
+    window.addEventListener('mouseup', ()=>{ cursorDot.style.transform = 'translate(-50%,-50%) scale(1)'; });
+
+    // make interactive elements highlight cursor
+    document.querySelectorAll('button, input[type=checkbox]').forEach(el=>{
+      el.addEventListener('mouseenter', ()=>{ cursorDot.style.transform='translate(-50%,-50%) scale(0.6)'; cursorRing.style.opacity = '0.6'; });
+      el.addEventListener('mouseleave', ()=>{ cursorDot.style.transform='translate(-50%,-50%) scale(1)'; cursorRing.style.opacity = '0.25'; });
+    });
+
+    // keyboard accessibility: regenerate via space key
+    window.addEventListener('keydown', (ev)=>{ if(ev.code === 'Space'){ ev.preventDefault(); spawnConfetti(32); cycleHue(); }});
+
+    // Make the background slowly shift hue too (subtle)
+    setInterval(()=>{
+      const b1 = Math.floor(20 + (Math.sin(Date.now()/12000)*10));
+      const b2 = Math.floor(10 + (Math.cos(Date.now()/13000)*20));
+      document.documentElement.style.setProperty('--bg1', `${b1} ${b1} ${b1+10}`);
+      document.documentElement.style.setProperty('--bg2', `${b2} ${b2} ${b2+40}`);
+    }, 7000);
+
+    // Accessibility: reduce motion if user prefers
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if(mq.matches){
+      letters.forEach(el=>{ el.style.animation = 'none'; });
+      clearInterval(hueInterval);
+      document.getElementById('controls').style.display='none';
+    }
+
+    // Allow easy copying: write separate files option
+    // (This is a single-file creative page. If you want 3 separate files, tell me and I'll split.)
+
+  </script>
+</body>
+</html>
